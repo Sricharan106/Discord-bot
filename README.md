@@ -58,11 +58,11 @@ Monkey Bot is a powerful and playful Discord bot that combines AI assistance, se
 
 ## 📝 To-Do / Future Features
 
--⏰ Daily rewards
--📊 Leaderboard and ranking
--🧱 Upgrade system (boost income/stocks)
--🗃️ Switch from JSON to a proper database (e.g., SQLite or PostgreSQL)
--🌐 Web dashboard for bot stats
+- ⏰ Daily rewards
+- 📊 Leaderboard and ranking
+- 🧱 Upgrade system (boost income/stocks)
+- 🗃️ Switch from JSON to a proper database (e.g., SQLite or PostgreSQL)
+- 🌐 Web dashboard for bot stats
 
 ---
 
