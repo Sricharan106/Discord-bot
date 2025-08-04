@@ -1,13 +1,15 @@
 import random
 import discord
 import google.generativeai as genai
-from discord.ext import commands
+from discord.ext import commands, tasks
 import logging
 from dotenv import load_dotenv
 import os
 import json
+from datetime import datetime, time, timedelta
+import asyncio
 
-
+prices = None
 
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
@@ -23,6 +25,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.event
 async def on_ready():
+    if not update_stock_prices.is_running():
+        update_stock_prices.start()
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
     print('------')
 
@@ -45,80 +49,83 @@ async def on_message(message):
 @bot.command()
 async def hello(ctx):
     await ctx.send(f"Hello! {ctx.author.mention}")
-
 @bot.command()
 async def bothelp(ctx):
     embed = discord.Embed(
-            title="🤖 Welcome to Monkey Bot!",
-            description="I'm your all-in-one assistant bot built to make your Discord experience smarter, fun, and a little more financially educated. Here's what I can do for you:",
-            color=discord.Color.purple()
-        )
+        title="🤖 Welcome to Monkey Bot!",
+        description="I'm your all-in-one assistant bot built to make your Discord experience smarter, fun, and a little more financially educated. Here's what I can do for you:",
+        color=discord.Color.purple()
+    )
 
     embed.add_field(
-            name="📜 General Commands",
-            value=(
-                "`!hello` - Say hi to the bot\n"
-                "`!bothelp` - Show this help message\n"
-                "`!dm` - Get a personal message from the bot\n"
-                "`!poll` - Create a poll (Yes/No style)\n"
-                "`!search <query>` - Ask anything using AI (powered by GEMINI)"
-            ),
-            inline=False
-        )
+        name="📜 General Commands",
+        value=(
+            "`!hello` - Say hi to the bot\n"
+            "`!bothelp` - Show this help message\n"
+            "`!dm` - Get a personal message from the bot\n"
+            "`!poll` - Create a poll (Yes/No style)\n"
+            "`!search <query>` - Ask anything using AI (powered by GEMINI)"
+            "`!profile` - View your profile with bank and stock info"
+        ),
+        inline=False
+    )
 
     embed.add_field(
-            name="🛠️ Moderation Commands",
-            value=(
-                "`!ban @user` - Ban a member from the server\n"
-                "`!kick @user` - Kick a member from the server"
-            ),
-            inline=False
-        )
+        name="🛠️ Moderation Commands",
+        value=(
+            "`!ban @user` - Ban a member from the server\n"
+            "`!kick @user` - Kick a member from the server"
+        ),
+        inline=False
+    )
 
     embed.add_field(
-            name="💰 Banking System (Game)",
-            value=(
-                "`!balance` - Check your bank balance\n"
-                "`!deposit <amount>` - Deposit money into your bank\n"
-                "`!withdraw <amount>` - Withdraw money from your bank\n"
-                "`!pocket` - Check your pocket balance\n"
-                "`!beg` - Ask for coins like a broke legend 😂\n"
-                "`!spend` - Spend money on random stuff\n"
-            ),
-            inline=False
-        )
+        name="💰 Banking System (Game)",
+        value=(
+            "`!balance` - Check your bank balance\n"
+            "`!deposit <amount>` - Deposit money into your bank\n"
+            "`!withdraw <amount>` - Withdraw money from your bank\n"
+            "`!pocket` - Check your pocket balance\n"
+            "`!beg` - Ask for coins like a broke legend 😂\n"
+            "`!spend` - Spend money on random stuff"
+        ),
+        inline=False
+    )
 
     embed.add_field(
-            name="👷‍♂️ Job & Earnings",
-            value=(
-                "`!job` - Choose a profession (once)\n"
-                "`!work` - Do your job and earn some cash\n"
-                "`!yourprofession` - See your current profession"
-            ),
-            inline=False
-        )
+        name="👷‍♂️ Job & Earnings",
+        value=(
+            "`!job` - Choose a profession (once)\n"
+            "`!work` - Do your job and earn some cash\n"
+            "`!yourprofession` - See your current profession"
+        ),
+        inline=False
+    )
 
     embed.add_field(
-            name="📈 Investment Options (Simulation)",
-            value=(
-                "`!fd <amount>` – Fixed Deposit: Safe and steady returns. Low risk, low reward.\n"
-                "`!sip <amount>` – SIP: Long-term growth with moderate risk. Consistent gains over time.\n"
-                "`!stocks <amount>` – Stock Market: High risk, high reward! Invest wisely."
-            ),
-            inline=False
-        )
+        name="📈 Investment Options (Simulation)",
+        value=(
+            "`!fd <amount>` – Fixed Deposit: Safe and steady returns. Low risk, low reward.\n"
+            "`!sip <amount>` – SIP: Long-term growth with moderate risk. Consistent gains over time.\n"
+            "`!stocks` – Show today’s available stock prices\n"
+            "`!buy <stock> <amount>` – Invest in a stock of your choice\n"
+            "`!sell <stock> <amount>` – Sell your stocks for profit (or loss 😅)\n"
+            "`!yourstocks` – View your current stock holdings"
+        ),
+        inline=False
+    )
 
     embed.add_field(
-            name="💡 Tips",
-            value=(
-                "- Try not to spend all your money 😅\n"
-                "- More features coming soon: daily rewards, upgrades, leaderboard, and more!"
-            ),
-            inline=False
-        )
+        name="💡 Tips",
+        value=(
+            "- Try not to spend all your money 😅\n"
+            "- More features coming soon: daily rewards, upgrades, leaderboard, and more!"
+        ),
+        inline=False
+    )
 
     await ctx.send(embed=embed)
-  
+
 
 @bot.command()
 async def dm(ctx, *, args: str = None):  # after !dm evrythih will be stored as str in args
@@ -268,6 +275,19 @@ def update_user_profession(user_id, profession):
 
     save_bank_data(bank_data)
 
+def get_owned_stocks(user_id):
+    data = load_bank_data()
+    return data.get(str(user_id), {}).get("stocks", {})
+
+def update_owned_stocks(user_id, stock, amount):
+    data = load_bank_data()
+    user_id = str(user_id)
+
+    if user_id not in data:
+        data[user_id] = {"bank": 0, "pocket": 0, "stocks": {}}
+    data[user_id]["stocks"][stock] = data[user_id]["stocks"].get(stock, 0) + amount
+    save_bank_data(data)
+
 @bot.command()
 async def balance(ctx):
     user_id = str(ctx.author.id)
@@ -392,15 +412,40 @@ async def profile(ctx):
     bank = data.get("bank", 0)
     pocket = data.get("pocket", 0)
     profession = data.get("profession", "Jobless")
+    stocks = data.get("stocks", {})
+
+    stock_text = "\n".join(f"{name}: {qty} shares" for name, qty in stocks.items()) if stocks else "None"
 
     await ctx.send(
         f"📜 **Profile for {ctx.author.mention}**\n"
         f"💰 Bank Balance: ₹{bank}\n"
         f"💼 Pocket Balance: ₹{pocket}\n"
-        f"🧑‍💼 Profession: {profession}"
+        f"🧑‍💼 Profession: {profession}\n"
+        f"📈 Stocks:\n{stock_text}"
     )
 
 # invest things
+
+@tasks.loop(hours=24)
+async def update_stock_prices():
+    global prices
+    prices = {
+        "TechCorp": random.randint(80, 120),
+        "GreenEnergy": random.randint(120, 180),
+        "CryptoX": random.randint(200, 400)
+    }
+    print("✅ Stock prices updated:", prices)
+
+@update_stock_prices.before_loop
+async def before_update_stock_prices():
+    await bot.wait_until_ready()
+    # now = datetime.now()
+    # target_time = datetime.combine(now.date(), time(hour=8, minute=0))
+    # if now > target_time:
+    #     target_time += timedelta(days=1)
+    # await asyncio.sleep((target_time - now).total_seconds())
+
+
 @bot.command()
 async def fd(ctx, amount: int):
     if amount <= 0:
@@ -461,11 +506,89 @@ async def stocks(ctx):
         color=discord.Color.blue()
     )
 
-    embed.add_field(name="🔹 TechCorp", value="High volatility, high reward", inline=False)
-    embed.add_field(name="🔸 GreenEnergy", value="Moderate risk, stable growth", inline=False)
-    embed.add_field(name="🪙 CryptoX", value="Very high risk, massive returns (or losses)", inline=False)
+    embed.add_field(name="🔹 TechCorp", value=f"High volatility, high reward `{prices['TechCorp']}`", inline=False)
+    embed.add_field(name="🔸 GreenEnergy", value=f"Moderate risk, stable growth `{prices['GreenEnergy']}`", inline=False)
+    embed.add_field(name="🪙 CryptoX", value=f"Very high risk, massive returns (or losses) `{prices['CryptoX']}`", inline=False)
 
+    embed.add_field(name="Note", value="Every day(24 hours) stock market values changes.", inline=False)
     await ctx.send(embed=embed)
+
+@bot.command()
+async def buy(ctx, stock: str, amount: int):
+    user_id = str(ctx.author.id)
+    stock = stock.strip()
+    if stock not in prices:
+        await ctx.send(f"❌ Invalid stock. Available: {', '.join(prices.keys())}")
+        return
+
+    cost = prices[stock] * amount
+    balance = get_balance(user_id)
+
+    if balance < cost:
+        return await ctx.send(f"❌ Not enough balance. You need ₹{cost} to buy {amount} of {stock}.")
+
+    # Deduct cost
+    update_balance(user_id, -cost)
+
+    # Load bank data and add stocks
+    data = load_bank_data()
+    user_data = data.setdefault(user_id, {"bank": 0, "pocket": 0, "stocks": {}})
+    user_stocks = user_data.setdefault("stocks", {})
+    user_stocks[stock] = user_stocks.get(stock, 0) + amount
+    save_bank_data(data)
+
+    await ctx.send(f"✅ You bought {amount} shares of {stock} at ₹{prices[stock]} each.\n💰 Total: ₹{cost}")
+
+@bot.command()
+async def sell(ctx, stock: str, amount: int):
+    user_id = str(ctx.author.id)
+    stock = stock.strip()
+
+    if stock not in prices:
+        return await ctx.send(f"❌ Invalid stock. Available: {', '.join(prices.keys())}")
+
+    if amount <= 0:
+        return await ctx.send("❌ Amount must be greater than 0.")
+
+    data = load_bank_data()
+    user_data = data.get(user_id, {})
+    user_stocks = user_data.get("stocks", {})
+
+    if stock not in user_stocks or user_stocks[stock] < amount:
+        return await ctx.send(f"❌ You don't own {amount} shares of {stock}.")
+
+    sell_price = prices[stock] * amount
+    user_stocks[stock] -= amount
+
+    if user_stocks[stock] == 0:
+        del user_stocks[stock]  # Clean up zero stock
+
+    # Update bank balance and save
+    user_data["stocks"] = user_stocks
+    user_data["bank"] = user_data.get("bank", 0) + sell_price
+    data[user_id] = user_data
+    save_bank_data(data)
+
+    await ctx.send(f"✅ You sold {amount} shares of {stock} for ₹{sell_price}.")
+
+
+@bot.command()
+async def yourstocks(ctx):
+    user_id = str(ctx.author.id)
+    data = load_bank_data()
+    user_data = data.get(user_id, {})
+    owned_stocks = get_owned_stocks(user_id)
+    if owned_stocks:
+        stock_text = ""
+        for stock, qty in owned_stocks.items():
+            price = prices.get(stock, 0)
+            value = price * qty
+            stock_text += f"{stock}: {qty} shares (₹{price} each = ₹{value})\n"
+    else:
+        stock_text = "None"
+
+    await ctx.send(f"📈 **Your Stocks:**\n{stock_text}")
+
 
 
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)
