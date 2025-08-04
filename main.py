@@ -6,7 +6,7 @@ import logging
 from dotenv import load_dotenv
 import os
 import json
-import datetime
+from datetime import datetime, time, timedelta
 
 prices = None
 
