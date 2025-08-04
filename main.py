@@ -6,8 +6,7 @@ import logging
 from dotenv import load_dotenv
 import os
 import json
-from datetime import datetime, time, timedelta
-import asyncio
+import datetime
 
 prices = None
 
