@@ -7,12 +7,15 @@ from dotenv import load_dotenv
 import os
 import json
 from datetime import datetime, time, timedelta
+from keep_alive import keep_alive
 
 prices = None
 
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 YOUR_GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+keep_alive()
 
 handler = logging.FileHandler(filename='bot.log', encoding='utf-8', mode='w')
 
